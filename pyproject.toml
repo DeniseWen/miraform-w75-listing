@@ -1,0 +1,24 @@
+[project]
+name = "w75-listing"
+version = "0.1.0"
+description = "Miraform W75 sandbox listing: Playwright driver + front-end tests for the three course platforms"
+authors = [
+    { name = "DeniseWen", email = "142428604+DeniseWen@users.noreply.github.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "playwright==1.62.0",
+    "pytest>=8.2",
+    "pytest-playwright==0.9.0",
+]
+
+[project.scripts]
+w75-listing = "w75_listing.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--tracing retain-on-failure --screenshot only-on-failure --output test-results"
