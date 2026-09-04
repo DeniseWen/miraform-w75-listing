@@ -26,7 +26,7 @@ uv run python -m playwright install chromium
 ## 重現驗證（安全 — 不會送出任何資料）
 
 ```bash
-uv run pytest -q                          # 10 個測試，約 11–20 秒
+uv run pytest -q                          # 14 個測試，約 45 秒（12 個會開瀏覽器）
 ```
 
 瀏覽器測試會打開**線上**沙盒頁面、填滿每個欄位、上傳四張 PNG、按下平台的送出鈕，並斷言
@@ -42,6 +42,8 @@ fixture（`tests/conftest.py`）攔截：擷取內容後回 `200`，頁面因此
 | `tests/test_market.py` | 四步驟精靈、`素材已辨識`、`4 張教材素材順序正確`、成功橫幅 + UUID、payload == 預期 |
 | `tests/test_studio.py` | 單頁表單（含狀態／通路／課稅），payload == 預期 |
 | `tests/test_procurement.py` | A–E 區段、6 列 BOM、4 項聲明，payload == 預期 |
+| `tests/test_submission.py` | 共用的解碼／檢查器能揪出錯的學員識別碼、平台、ID 或任一 `data` 欄位 |
+| `tests/test_cli.py` | CLI 試跑會寫出與 `EXPECTED` 相等的 `market-payload.json`，並附截圖與 ID |
 
 常用參數（來自 `pytest-playwright`）：`--headed` 看畫面、`--tracing on` 錄製。失敗時 trace
 與截圖留在 `test-results/`。
@@ -56,13 +58,34 @@ uv run python -m w75_listing --submit     # 真實提交：放行 POST — 每�
 選項：`--platform {all,market,studio,procurement}`（只重跑單一平台）、`--headed`、
 `--runs-dir DIR`。
 
-每次執行會寫入 `runs/<UTC 時間戳>[-dry]/`：每個平台一張整頁截圖（`market.png`、`studio.png`、
-`procurement.png`）與 `submission-ids.txt`。失敗時存 `<platform>-FAILED.png`、印出錯誤、
-以 exit 1 結束且不碰其餘平台 — 用 `--platform` 只重跑那一個。`runs/` 已列入 git-ignore。
+每次執行 — 不論試跑或真實提交 — 都會寫入 `runs/<UTC 時間戳>[-dry]/`：每個平台一張整頁截圖
+（`<platform>.png`）、頁面實際送出的 POST 解碼結果（`<platform>-payload.json`），以及
+`submission-ids.txt`。CLI 會觀察那個 POST（只有試跑模式才*攔截*它）、逐欄與 `EXPECTED` 比對，
+並對每個平台印出 `payload verified against EXPECTED`。比對不符時會列出每個不同的欄位並以 exit 1
+結束；驅動程式失敗時存 `<platform>-FAILED.png` 並以 exit 1 結束 — 兩種情況都不會碰其餘平台，
+用 `--platform` 只重跑那一個即可。`runs/` 已列入 git-ignore。
 
-提交 ID 由前端產生（`crypto.randomUUID()`）並顯示在頁面上；網站送往的 Google 表單使用
-佔位的 entry id，所以課程後端是否真的記錄了，從這裡無法觀察。頁面的成功橫幅是沙盒提供的
-唯一證據。
+## 如何驗證一次執行的結果
+
+1. **主控台那一行** `[w75] market: <uuid> — payload verified against EXPECTED, saved
+   market-payload.json, screenshot market.png` 的意思是：頁面顯示了帶著該 ID 的成功橫幅，
+   而且它送出的 POST 內容解碼後與預期欄位完全相同。
+2. **打開 `runs/<ts>/<platform>.png`** — 送出後拍的整頁截圖：每個欄位的填寫內容、
+   `素材已辨識 4/4`、已勾選的聲明，以及頁尾帶著同一個 ID 的成功橫幅。這是不用執行任何東西、
+   任何人都能檢查的視覺證據。
+3. **讀 `runs/<ts>/<platform>-payload.json`** — 網站送出的 `{submissionId, submittedAt,
+   platform, data}` 包裝；`data` 就是課程後端收到的內容。
+4. **重跑測試**（`uv run pytest -q`，不會送出）、看畫面（`--headed`）或回放
+   （`--tracing on`，再 `uv run playwright show-trace test-results/<test>/trace.zip`）。
+
+從這裡無法驗證的是課程方的回覆試算表本身（只有擁有者看得到）；下面已說明為何格式正確的
+POST 會被接受。
+
+提交 ID 由前端產生（`crypto.randomUUID()`），在 POST resolve 後顯示於頁面。回應本身是不透明的
+（`no-cors`），所以無法從這裡讀回紀錄 — 但目標 Google 表單（「Miraform W75 多平台商品上架沙盒｜
+回覆後端」）恰好有網站送出的那五個必填題（學員識別碼、平台代碼、提交內容 JSON、素材檔案驗證
+JSON、介面版本；id 1–5），且 Google 會把網站用的補零鍵 `entry.00000001..05` 解析到這些題目
+（以預填網址驗證，不會產生紀錄）。格式正確的 POST 因此會被接受；資料列會落在課程方的回覆試算表。
 
 ## 資料從哪裡來
 
@@ -94,9 +117,10 @@ assets/                 課程資料包：4 張 PNG、asset-manifest.csv、商�
 src/w75_listing/
   product.py            STUDENT、ASSET_ORDER、FIELDS、EXPECTED
   driver.py             wait_hydrated、goto_step、fill_fields、upload_assets、fill_*
+  submission.py         decode_entries、decode_payload、check_submission（測試與 CLI 共用）
   __main__.py           CLI（python -m w75_listing）
-tests/                  conftest（intercept fixture）+ 5 個測試模組
-runs/                   每次執行的截圖 + submission-ids.txt（git-ignore）
+tests/                  conftest（intercept fixture）+ 7 個測試模組
+runs/                   每次執行的截圖、<platform>-payload.json、submission-ids.txt（git-ignore）
 ```
 
 資料轉錄、驅動程式與測試框架的設計與決策紀錄（程式碼以 `AC<n>` 引用）→

@@ -21,10 +21,13 @@ Load-bearing invariants, each backed by a measurement made on 2026-09-04:
 - **The site validates nothing but `student`.** Each page chunk's only blocking check is
   `if(!FormData.get("student")) → error`; everything else is posted as typed. Correctness
   therefore means faithful transcription, not passing a validator.
-- **The only outbound call is a `no-cors` POST to a Google Form** with placeholder entry
-  ids (`entry.00000001..05`). The page flips to its success state when the fetch resolves,
-  so a test can `route.fulfill(200)` it and still reach the real success banner. Whether
-  the course backend records anything is unobservable from the client.
+- **The only outbound call is a `no-cors` POST to a Google Form** with keys
+  `entry.00000001..05`. The page flips to its success state when the fetch resolves, so a
+  test can `route.fulfill(200)` it and still reach the real success banner. The response is
+  opaque, but the form (「Miraform W75 多平台商品上架沙盒｜回覆後端」) has exactly five
+  required questions with ids 1–5 matching what is sent, and a prefill probe showed Google
+  resolves the zero-padded keys to them — so a complete POST is accepted (measured
+  2026-09-04, after the real run).
 - **Uploads are hash-checked in the browser**: SHA-256 of each file is matched to a
   4-entry manifest; `素材已辨識` appears only when all four match, and QMarket's step 4
   additionally checks the order. The vendored PNGs are byte-identical to the manifest.
@@ -114,7 +117,7 @@ Appendix
 
 **Verdict.** `page.route("**/formResponse")` captures the body and fulfils `200`; a `page.on("request")` log must contain exactly one `docs.google.com` request, and it must be the routed one.
 **Why.** `route.abort()` would throw inside the page's fetch and land in its `catch → error` state, so tests would be asserting a state the real run never produces; fulfilling lets the page reach the same success banner as production while nothing leaves. The captured body is url-encoded form entries whose `entry.00000003` is the payload JSON — asserted for exact equality against `EXPECTED`, because `data` is built purely from `FormData` values we control (unfilled text → `""`, unfilled select → `null`).
-**Constrains.** `tests/conftest.py:intercept`, `:Intercept.assert_clean`; `src/w75_listing/product.py:FORM_ACTION_GLOB`; the CLI's dry run reuses the same glob at context scope (`src/w75_listing/__main__.py:_swallow`).
+**Constrains.** `tests/conftest.py:intercept`, `:Intercept.assert_clean`; `src/w75_listing/product.py:FORM_ACTION_GLOB`; the CLI's dry run reuses the same glob at context scope (`src/w75_listing/__main__.py:_swallow`). Decoding and the field-by-field check live in `src/w75_listing/submission.py` (`decode_entries`, `decode_payload`, `check_submission`), shared by the fixture and the CLI so a real run leaves `runs/<ts>/<platform>-payload.json` verified the same way.
 **Evidence.** every form test calls `intercept.assert_clean()`; the intercept smoke on 2026-09-04 captured five entries (student, platform, payload, assets, version `1.0.0`) with one routed request.
 **Superseded by.** —
 

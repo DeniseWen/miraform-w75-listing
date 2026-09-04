@@ -28,7 +28,7 @@ uv run python -m playwright install chromium
 ## Reproduce the verification (safe — nothing is submitted)
 
 ```bash
-uv run pytest -q                          # 10 tests, ~11–20 s
+uv run pytest -q                          # 14 tests, ~45 s (12 browser-backed)
 ```
 
 The browser tests open the **live** sandbox pages, fill every field, upload the four PNGs,
@@ -46,6 +46,8 @@ is then compared **for exact equality** with `EXPECTED[platform]` in
 | `tests/test_market.py` | 4-step wizard, `素材已辨識`, `4 張教材素材順序正確`, success banner + UUID, payload == expected |
 | `tests/test_studio.py` | single-page form incl. status/channels/taxable, payload == expected |
 | `tests/test_procurement.py` | sections A–E, 6 BOM rows, 4 declarations, payload == expected |
+| `tests/test_submission.py` | the shared decoder/checker flags a wrong student, platform, id, or any `data` field |
+| `tests/test_cli.py` | a CLI dry run writes `market-payload.json` equal to `EXPECTED` plus the screenshot and id |
 
 Useful flags (from `pytest-playwright`): `--headed` to watch, `--tracing on` to record.
 Failures leave a trace and screenshot under `test-results/`.
@@ -60,15 +62,41 @@ uv run python -m w75_listing --submit     # REAL RUN: lets the POST through — 
 Options: `--platform {all,market,studio,procurement}` (re-run a single platform),
 `--headed`, `--runs-dir DIR`.
 
-Each run writes `runs/<UTC timestamp>[-dry]/` with a full-page screenshot per platform
-(`market.png`, `studio.png`, `procurement.png`) and `submission-ids.txt`. On failure it
-saves `<platform>-FAILED.png`, prints the error, and exits 1 without touching the remaining
-platforms — re-run just that one with `--platform`. `runs/` is git-ignored.
+Each run — dry or real — writes `runs/<UTC timestamp>[-dry]/` with, per platform, a
+full-page screenshot (`<platform>.png`) and the decoded POST the page actually sent
+(`<platform>-payload.json`), plus `submission-ids.txt`. The CLI observes that POST (it
+only *intercepts* it in dry mode), checks it against `EXPECTED` field by field, and prints
+`payload verified against EXPECTED` per platform. A mismatch prints every differing field
+and exits 1; a driver failure saves `<platform>-FAILED.png` and exits 1 — in both cases the
+remaining platforms are not touched, so re-run just that one with `--platform`. `runs/` is
+git-ignored.
+
+## How to verify a run
+
+1. **The console line** `[w75] market: <uuid> — payload verified against EXPECTED, saved
+   market-payload.json, screenshot market.png` means: the page showed its success banner
+   with that id, and the body it POSTed decoded to exactly the expected fields.
+2. **Open `runs/<ts>/<platform>.png`** — a full-page screenshot taken after submit: every
+   field as filled, `素材已辨識 4/4`, the checked declarations, and the success banner with
+   the same id at the bottom. This is the visual proof a viewer can check without running
+   anything.
+3. **Read `runs/<ts>/<platform>-payload.json`** — the `{submissionId, submittedAt,
+   platform, data}` wrapper the site sent; `data` is what the course backend received.
+4. **Re-run the suite** (`uv run pytest -q`, nothing submitted) or watch it
+   (`--headed`) / replay it (`--tracing on`, then `uv run playwright show-trace
+   test-results/<test>/trace.zip`).
+
+What cannot be verified from here is the course's response sheet itself (owner-only);
+see the note below on why a complete POST is accepted.
 
 The submission IDs are generated client-side (`crypto.randomUUID()`) and shown on the
-page; the Google Form the site posts to uses placeholder entry ids, so whether the course
-backend records anything cannot be observed from here. The page's success banner is the
-only evidence the sandbox offers.
+page once its POST has resolved. The response itself is opaque (`no-cors`), so the
+recording cannot be read back from here — but the target Google Form (「Miraform W75
+多平台商品上架沙盒｜回覆後端」) has exactly the five required questions the site sends
+(學員識別碼, 平台代碼, 提交內容 JSON, 素材檔案驗證 JSON, 介面版本; ids 1–5), and Google
+resolves the site's zero-padded keys `entry.00000001..05` to them (verified with a
+prefill URL, which records nothing). A well-formed POST is therefore accepted; the
+course owner's response sheet is where the rows land.
 
 ## Where the values come from
 
@@ -105,9 +133,10 @@ assets/                 course pack: 4 PNG, asset-manifest.csv, product master (
 src/w75_listing/
   product.py            STUDENT, ASSET_ORDER, FIELDS, EXPECTED
   driver.py             wait_hydrated, goto_step, fill_fields, upload_assets, fill_*
+  submission.py         decode_entries, decode_payload, check_submission (shared by tests + CLI)
   __main__.py           CLI (python -m w75_listing)
-tests/                  conftest (intercept fixture) + 5 test modules
-runs/                   per-run screenshots + submission-ids.txt (git-ignored)
+tests/                  conftest (intercept fixture) + 7 test modules
+runs/                   per-run screenshots, <platform>-payload.json, submission-ids.txt (git-ignored)
 ```
 
 Design & rationale for the data transcription, driver and test harness (cited from code as `AC<n>`) → `docs/w75-listing-rationale.md` (繁體中文: `docs/w75-listing-rationale.zh-TW.md`).

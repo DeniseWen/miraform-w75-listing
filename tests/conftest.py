@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 from typing import Any
-from urllib.parse import parse_qs
 
 import pytest
 from playwright.sync_api import Page, Request, Route
 
 from w75_listing.product import BASE_URL, FORM_ACTION_GLOB
+from w75_listing.submission import decode_entries, decode_payload
 
 GOOGLE_HOST = "docs.google.com"
 
@@ -33,10 +32,10 @@ class Intercept:
     google_requests: list[str] = field(default_factory=list)
 
     def entries(self, index: int = 0) -> dict[str, str]:
-        return {key: values[0] for key, values in parse_qs(self.bodies[index]).items()}
+        return decode_entries(self.bodies[index])
 
     def payload(self, index: int = 0) -> dict[str, Any]:
-        return json.loads(self.entries(index)["entry.00000003"])
+        return decode_payload(self.bodies[index])
 
     def assert_clean(self) -> None:
         # AC6: exactly one submission, and every request to Google was the routed one.

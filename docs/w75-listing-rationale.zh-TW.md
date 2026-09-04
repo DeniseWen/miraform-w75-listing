@@ -20,9 +20,11 @@ SupplyDesk `/procurement`（單頁，46 個輸入名稱 + 4 個聲明勾選框�
 - **網站只驗證 `student` 一個欄位。** 每個頁面 chunk 唯一會擋下送出的檢查是
   `if(!FormData.get("student")) → error`；其餘內容照輸入原樣送出。因此「正確」指的是忠實轉錄，
   而不是通過某個驗證器。
-- **唯一的對外請求是送往 Google 表單的 `no-cors` POST**，且 entry id 是佔位值
-  （`entry.00000001..05`）。fetch 一 resolve 頁面就切到成功狀態，所以測試可以用
-  `route.fulfill(200)` 攔截，仍看到真正的成功橫幅。課程後端是否記錄，從前端無法觀察。
+- **唯一的對外請求是送往 Google 表單的 `no-cors` POST**，鍵為 `entry.00000001..05`。
+  fetch 一 resolve 頁面就切到成功狀態，所以測試可以用 `route.fulfill(200)` 攔截，仍看到真正的
+  成功橫幅。回應雖不透明，但該表單（「Miraform W75 多平台商品上架沙盒｜回覆後端」）恰有 id 1–5
+  的五個必填題、與送出的內容一一對應，且預填探測顯示 Google 會把補零鍵解析到這些題目 — 因此
+  完整的 POST 會被接受（2026-09-04 真實提交後量測）。
 - **上傳在瀏覽器內做雜湊比對**：每個檔案的 SHA-256 與 4 筆清單比對；四張全對才顯示
   `素材已辨識`，QMarket 第 4 步另外檢查順序。內附的 PNG 與清單逐位元相同。
 - **這台主機的 React hydration 慢且不穩** — 每個新瀏覽器 context 需 0.4 秒到 62 秒
@@ -108,7 +110,7 @@ SupplyDesk `/procurement`（單頁，46 個輸入名稱 + 4 個聲明勾選框�
 
 **結論。** `page.route("**/formResponse")` 擷取內容並回應 `200`；`page.on("request")` 紀錄必須恰好含一個 `docs.google.com` 請求，且必須就是被攔截的那一個。
 **原因。** `route.abort()` 會讓頁面的 fetch 拋出例外並落入其 `catch → error` 狀態，測試就會在斷言一個真實提交永遠不會出現的狀態；改為回應 200，頁面能到達與正式提交相同的成功橫幅，同時沒有任何資料外流。擷取到的內容是 url-encoded 的表單 entry，其中 `entry.00000003` 是 payload JSON — 與 `EXPECTED` 做完全相等斷言，因為 `data` 純粹由我們控制的 `FormData` 值組成（未填的文字欄 → `""`，未選的 select → `null`）。
-**約束。** `tests/conftest.py:intercept`、`:Intercept.assert_clean`；`src/w75_listing/product.py:FORM_ACTION_GLOB`；CLI 試跑在 context 層級重用同一個 glob（`src/w75_listing/__main__.py:_swallow`）。
+**約束。** `tests/conftest.py:intercept`、`:Intercept.assert_clean`；`src/w75_listing/product.py:FORM_ACTION_GLOB`；CLI 試跑在 context 層級重用同一個 glob（`src/w75_listing/__main__.py:_swallow`）。解碼與逐欄檢查放在 `src/w75_listing/submission.py`（`decode_entries`、`decode_payload`、`check_submission`），由 fixture 與 CLI 共用，因此真實提交也會留下以同樣方式驗證過的 `runs/<ts>/<platform>-payload.json`。
 **證據。** 每個表單測試都呼叫 `intercept.assert_clean()`；2026-09-04 的攔截煙霧測試擷取到五個 entry（student、platform、payload、assets、version `1.0.0`）與一個被攔截的請求。
 **被取代於。** —
 
